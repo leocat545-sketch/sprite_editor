@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pixel Art Tool • Scaler & Sprite Sheet Cutter</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0e1420;color:#eef2f7;font-family:system-ui,Arial,sans-serif}
+main{max-width:1000px;margin:auto;padding:20px}
+.card{background:#192231;border:1px solid #334155;border-radius:16px;padding:18px;margin-bottom:16px}
+h1{margin:0 0 6px}.muted{color:#9aa8ba}
+.row{display:flex;gap:12px;flex-wrap:wrap}.field{flex:1;min-width:180px}
+label{display:block;font-weight:700;margin:10px 0 6px}
+input,button{font:inherit}
+input[type=file],input[type=number]{width:100%;padding:11px;border-radius:9px;border:1px solid #475569;background:#0e1420;color:white}
+.check{display:flex;align-items:center;gap:8px;font-weight:500}.check input{width:18px;height:18px}
+button{border:0;border-radius:10px;padding:12px 15px;font-weight:800;cursor:pointer;background:#60a5fa;color:#07111d}
+button:disabled{opacity:.4;cursor:not-allowed}
+.secondary{background:#475569;color:white}
+.green{background:#34d399;color:#062016}
+.preview{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.box{background:#0e1420;border:1px solid #334155;border-radius:12px;padding:12px;text-align:center;overflow:auto}
+canvas{max-width:100%;height:auto;image-rendering:pixelated;image-rendering:crisp-edges}
+.status{font-size:13px;color:#9aa8ba;margin-top:8px}
+#download{display:none}
+@media(max-width:700px){.preview{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<div class="card">
+<h1>🧊 Pixel Art Tool</h1>
+<p class="muted">Agrandissement <b>Nearest Neighbor</b> + découpe de spritesheet pixel-perfect.</p>
+
+<label>Image / Sprite sheet</label>
+<input id="file" type="file" accept="image/png,image/jpeg,image/webp">
+
+<div class="row">
+<div class="field">
+<label>Échelle</label>
+<input id="scale" type="number" min="1" max="100" step="1" value="4">
+</div>
+<div class="field">
+<label>Taille finale</label>
+<input id="size" value="En attente..." readonly>
+</div>
+</div>
+
+<label class="check">
+<input id="removeBg" type="checkbox">
+Retirer l'arrière-plan (optionnel)
+</label>
+
+<div class="row">
+<button id="scaleBtn" disabled>Agrandir en Nearest Neighbor</button>
+<button id="download" class="green">⬇️ Télécharger</button>
+</div>
+</div>
+
+<div class="card">
+<h2>✂️ Découpage de spritesheet</h2>
+<p class="muted">Définis la taille exacte d'une case. Le découpage ne redimensionne pas les sprites et ne mélange aucun pixel.</p>
+
+<div class="row">
+<div class="field"><label>Largeur d'une case</label><input id="cellW" type="number" min="1" value="32"></div>
+<div class="field"><label>Hauteur d'une case</label><input id="cellH" type="number" min="1" value="32"></div>
+</div>
+<div class="row">
+<button id="autoGrid" class="secondary" disabled>🔎 Détecter automatiquement la grille</button>
+</div>
+
+<div class="row">
+<div class="field"><label>Colonne de départ</label><input id="startCol" type="number" min="0" value="0"></div>
+<div class="field"><label>Ligne de départ</label><input id="startRow" type="number" min="0" value="0"></div>
+</div>
+
+<div class="row">
+<div class="field"><label>Nombre de colonnes</label><input id="cols" type="number" min="1" value="1"></div>
+<div class="field"><label>Nombre de lignes</label><input id="rows" type="number" min="1" value="1"></div>
+</div>
+
+<label class="check">
+<input id="trim" type="checkbox">
+Découper automatiquement les pixels transparents autour de chaque sprite
+</label>
+
+<div class="row">
+<button id="cutBtn" class="secondary" disabled>✂️ Découper la spritesheet</button>
+<button id="downloadSheet" class="green" style="display:none">⬇️ Télécharger la découpe</button>
+</div>
+<div id="status" class="status">Aucune image chargée.</div>
+</div>
+
+<div class="preview">
+<div class="box"><b>Original</b><br><canvas id="original"></canvas></div>
+<div class="box"><b>Résultat / aperçu</b><br><canvas id="result"></canvas></div>
+</div>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const file=$("file"), scale=$("scale"), size=$("size");
+const original=$("original"), result=$("result");
+const scaleBtn=$("scaleBtn"), download=$("download");
+const cutBtn=$("cutBtn"), downloadSheet=$("downloadSheet");
+const autoGrid=$("autoGrid");
+const status=$("status");
+let img=new Image(), loaded=false;
+
+function drawPixelPerfect(ctx,source,sx,sy,sw,sh,dx,dy,dw,dh){
+  ctx.imageSmoothingEnabled=false;
+  ctx.clearRect(dx,dy,dw,dh);
+  ctx.drawImage(source,sx,sy,sw,sh,dx,dy,dw,dh);
+}
+
+function updateSize(){
+ if(!loaded)return;
+ const s=Math.max(1,parseInt(scale.value)||1);
+ size.value=`${img.naturalWidth*s} × ${img.naturalHeight*s} px`;
+}
+scale.oninput=updateSize;
+
+file.onchange=e=>{
+ const f=e.target.files[0]; if(!f)return;
+ const url=URL.createObjectURL(f);
+ img.onload=()=>{
+  loaded=true;
+  original.width=img.naturalWidth;
+  original.height=img.naturalHeight;
+  const c=original.getContext("2d");
+  c.imageSmoothingEnabled=false;
+  c.clearRect(0,0,original.width,original.height);
+  c.drawImage(img,0,0);
+  updateSize();
+  scaleBtn.disabled=false;
+  cutBtn.disabled=false;
+  autoGrid.disabled=false;
+  status.textContent=`Image : ${img.naturalWidth} × ${img.naturalHeight}px`;
+  // La taille de l'image est récupérée automatiquement, sans saisie manuelle.
+  $("cellW").value=img.naturalWidth;
+  $("cellH").value=img.naturalHeight;
+  $("cols").value=1;
+  $("rows").value=1;
+  URL.revokeObjectURL(url);
+ };
+ img.src=url;
+};
+
+scaleBtn.onclick=()=>{
+ if(!loaded)return;
+ const s=Math.max(1,parseInt(scale.value)||1);
+ result.width=img.naturalWidth*s;
+ result.height=img.naturalHeight*s;
+ const c=result.getContext("2d");
+ c.imageSmoothingEnabled=false;
+ c.clearRect(0,0,result.width,result.height);
+ c.drawImage(img,0,0,result.width,result.height);
+ download.style.display="inline-block";
+ status.textContent=`Agrandie ×${s} avec Nearest Neighbor.`;
+};
+
+download.onclick=()=>{
+ const a=document.createElement("a");
+ a.download="pixel-art-nearest-neighbor.png";
+ a.href=result.toDataURL("image/png");
+ a.click();
+};
+
+
+// Détection automatique d'une grille régulière.
+// On cherche les plus grands diviseurs communs aux dimensions de la spritesheet,
+// puis on privilégie les cellules carrées ou proches du carré.
+autoGrid.onclick=()=>{
+ if(!loaded)return;
+ const W=img.naturalWidth, H=img.naturalHeight;
+ const divisors=n=>{
+  const a=[];
+  for(let i=1;i<=Math.sqrt(n);i++){
+   if(n%i===0){a.push(i); if(i!==n/i)a.push(n/i);}
+  }
+  return a.sort((x,y)=>x-y);
+ };
+ const dw=divisors(W), dh=divisors(H);
+ let best=null;
+ for(const w of dw){
+  for(const h of dh){
+   const ratio=w/h;
+   const score=Math.abs(Math.log(ratio))*4 + (w<4||h<4?2:0);
+   // On favorise des cases raisonnablement petites, typiques des spritesheets.
+   const sizePenalty=(w>256||h>256)?2:0;
+   const s=score+sizePenalty;
+   if(!best || s<best.score) best={w,h,score:s};
+  }
+ }
+ // Si l'image est carrée, les tailles classiques sont testées en priorité.
+ const common=[8,16,24,32,48,64,96,128];
+ let commonBest=null;
+ for(const w of common){
+  if(W%w===0 && H%w===0){
+   const s=Math.abs(Math.log(w/32));
+   if(!commonBest || s<commonBest.s) commonBest={w,h:w,s};
+  }
+ }
+ if(commonBest){
+  best=commonBest;
+ }
+ $("cellW").value=best.w;
+ $("cellH").value=best.h;
+ $("startCol").value=0;
+ $("startRow").value=0;
+ $("cols").value=Math.floor(W/best.w);
+ $("rows").value=Math.floor(H/best.h);
+ status.textContent=`Grille détectée automatiquement : cases ${best.w} × ${best.h}px, ${Math.floor(W/best.w)} × ${Math.floor(H/best.h)} cases.`;
+};
+
+function makeSheetCanvas(){
+ const cw=Math.max(1,parseInt($("cellW").value)||1);
+ const ch=Math.max(1,parseInt($("cellH").value)||1);
+ const sc=Math.max(0,parseInt($("startCol").value)||0);
+ const sr=Math.max(0,parseInt($("startRow").value)||0);
+ const cols=Math.max(1,parseInt($("cols").value)||1);
+ const rows=Math.max(1,parseInt($("rows").value)||1);
+
+ const sx=sc*cw, sy=sr*ch;
+ const outW=cols*cw, outH=rows*ch;
+ if(sx+outW>img.naturalWidth || sy+outH>img.naturalHeight){
+  throw new Error("La zone demandée dépasse les dimensions de l'image.");
+ }
+
+ const canvas=document.createElement("canvas");
+ canvas.width=outW; canvas.height=outH;
+ const ctx=canvas.getContext("2d");
+ ctx.imageSmoothingEnabled=false;
+ ctx.drawImage(img,sx,sy,outW,outH,0,0,outW,outH);
+ return canvas;
+}
+
+cutBtn.onclick=()=>{
+ if(!loaded)return;
+ try{
+  const canvas=makeSheetCanvas();
+
+  if($("trim").checked){
+   const ctx=canvas.getContext("2d");
+   const data=ctx.getImageData(0,0,canvas.width,canvas.height);
+   let minX=canvas.width,minY=canvas.height,maxX=-1,maxY=-1;
+   for(let y=0;y<canvas.height;y++){
+    for(let x=0;x<canvas.width;x++){
+     if(data.data[(y*canvas.width+x)*4+3]>0){
+      if(x<minX)minX=x;if(y<minY)minY=y;
+      if(x>maxX)maxX=x;if(y>maxY)maxY=y;
+     }
+    }
+   }
+   if(maxX>=0){
+    const trimmed=document.createElement("canvas");
+    trimmed.width=maxX-minX+1; trimmed.height=maxY-minY+1;
+    const tc=trimmed.getContext("2d");
+    tc.imageSmoothingEnabled=false;
+    tc.drawImage(canvas,minX,minY,trimmed.width,trimmed.height,0,0,trimmed.width,trimmed.height);
+    canvas.width=trimmed.width; canvas.height=trimmed.height;
+    canvas.getContext("2d").imageSmoothingEnabled=false;
+    canvas.getContext("2d").drawImage(trimmed,0,0);
+   }
+  }
+
+  result.width=canvas.width;
+  result.height=canvas.height;
+  const rc=result.getContext("2d");
+  rc.imageSmoothingEnabled=false;
+  rc.clearRect(0,0,result.width,result.height);
+  rc.drawImage(canvas,0,0);
+
+  downloadSheet.style.display="inline-block";
+  status.textContent=`Découpe parfaite : ${result.width} × ${result.height}px. Aucun redimensionnement.`;
+ }catch(err){
+  status.textContent="⚠️ "+err.message;
+ }
+};
+
+downloadSheet.onclick=()=>{
+ const a=document.createElement("a");
+ a.download="sprite-sheet-cut.png";
+ a.href=result.toDataURL("image/png");
+ a.click();
+};
+</script>
+</body>
+</html>
